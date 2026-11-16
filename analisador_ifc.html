@@ -176,7 +176,6 @@ ol.passos b { color: var(--ink); }
     <!-- Abordagem viewer × viewer, mantida mas fora do caminho do uso diário. -->
     <button class="aba" role="tab" id="t-geom" aria-selected="false" aria-controls="p-geom">Geometria</button>
     <button class="aba" role="tab" id="t-comp" aria-selected="false" aria-controls="p-comp">Comparar</button>
-    <button class="aba" role="tab" id="t-rel" aria-selected="false" aria-controls="p-rel">Relações</button>
   </div>
 
   <!-- ─────────────── DIAGNÓSTICO ─────────────── -->
@@ -336,25 +335,6 @@ ol.passos b { color: var(--ink); }
     </div>
   </section>
 
-  <!-- ─────────────── RELAÇÕES ─────────────── -->
-  <section id="p-rel" role="tabpanel" aria-labelledby="t-rel" hidden>
-    <div class="bloco">
-      <h2>Fidelidade estrutural (.rel do BIMvision)</h2>
-      <div class="corpo">
-        <p class="nota">O BVF do BIMvision é um ZIP; dentro dele, o arquivo <code>.rel</code> traz o grafo de relações como o visualizador o leu. Comparar esse grafo contra o IFC original mede fidelidade estrutural — e serve de controle negativo: se o método acusa divergência onde não há, ele está errado.</p>
-        <div class="controles" style="margin-top:14px">
-          <label class="ctl">Arquivo .rel
-            <button class="botao fraco" id="btn-rel">Escolher .rel</button>
-            <input type="file" id="arq-rel" accept=".rel,.txt">
-          </label>
-          <button class="botao" id="btn-difrel" disabled>Comparar com o IFC</button>
-        </div>
-        <p class="conta" id="estado-rel" style="margin-top:10px">Carregue um IFC na aba Diagnóstico e um .rel aqui.</p>
-        <div id="res-rel"></div>
-      </div>
-    </div>
-  </section>
-
   <!-- ─────────────── COMO USAR ─────────────── -->
   <section id="p-proto" role="tabpanel" aria-labelledby="t-proto" hidden>
     <div class="bloco">
@@ -423,7 +403,7 @@ ol.passos b { color: var(--ink); }
 
         <div class="aviso bom">
           <strong>Dois atalhos que não precisam de captura nenhuma</strong>
-          A aba <b>Relações</b> compara o grafo estrutural do <code>.rel</code> (extraído do BVF do BIMvision, que é um ZIP) contra o IFC — serve de controle negativo e sai da versão gratuita. E a aba <b>Comparar</b> aceita dois arquivos de nuvem de pontos quando você tiver exportação nativa dos dois lados, sem passar por imagem.
+          A aba <b>Comparar</b> aceita dois arquivos de nuvem de pontos quando você tiver exportação nativa dos dois lados, sem passar por imagem.
         </div>
       </div>
     </div>
@@ -2206,7 +2186,7 @@ const ROTULOS = { consistente: "Consistente", divergencia_leve: "Divergência le
 const CORES = { consistente: "var(--ok)", divergencia_leve: "var(--warn)",
                 divergencia_significativa: "var(--bad)", sem_geometria_a: "var(--info)", sem_geometria_b: "var(--info)" };
 
-let MODELO = null, TEXTO_IFC = null, GEOM_A = null, GEOM_B = null, TEXTO_REL = null, ULTIMA_GEOM = null;
+let MODELO = null, TEXTO_IFC = null, GEOM_A = null, GEOM_B = null, ULTIMA_GEOM = null;
 
 /* ── abas ── */
 document.querySelectorAll(".aba").forEach((aba) => {
@@ -2259,8 +2239,6 @@ function carregarIfc(texto, nome) {
       CACHE_MALHA_PROJETO.clear();
       REF = null; IMG_CAPTURA_B = null; $("#res-ref-comp").innerHTML = "";
       preencherSeletor();
-      $("#btn-difrel").disabled = !TEXTO_REL;
-      $("#estado-rel").textContent = TEXTO_REL ? "IFC e .rel carregados." : "Carregue um .rel aqui.";
     } catch (err) {
       $("#res-diag").innerHTML = '<div class="aviso grave"><strong>Não consegui ler o arquivo</strong>' + esc(err.message) + "</div>";
     }
@@ -2649,54 +2627,6 @@ function grafico(comValor, tol, limiar) {
   return s;
 }
 
-/* ── relações ── */
-ligarEscolha("#btn-rel", "#arq-rel", (txt, f) => {
-  TEXTO_REL = txt;
-  $("#estado-rel").textContent = MODELO ? "IFC e .rel carregados: " + f.name : "Falta carregar um IFC na aba Diagnóstico.";
-  $("#btn-difrel").disabled = !MODELO;
-});
-
-const IDX_RELACIONADOS = { IFCRELNESTS: 5, IFCRELAGGREGATES: 5, IFCRELCONTAINEDINSPATIALSTRUCTURE: 4, IFCRELVOIDSELEMENT: 5 };
-
-$("#btn-difrel").addEventListener("click", () => {
-  const m = MODELO;
-  const linhas = TEXTO_REL.split(/\r?\n/).filter((l) => l.trim()).map((l) => {
-    const p = l.trim().split(";");
-    return { tipo: p[0], relacionante: p[1], relacionados: p.slice(2).filter(Boolean) };
-  });
-
-  const tipos = [...new Set(linhas.map((l) => l.tipo))];
-  let html = '<div class="campos" style="margin-top:16px">' + campo("Linhas no .rel", num(linhas.length)) + "</div>";
-  html += '<div class="rolagem" style="margin-top:14px"><table><thead><tr><th>Relação</th><th class="n">No .rel</th><th class="n">No IFC</th><th class="n">Relacionados .rel</th><th class="n">Relacionados IFC</th><th>Distribuição</th></tr></thead><tbody>';
-
-  let tudoIgual = true;
-  for (const t of tipos) {
-    const doRel = linhas.filter((l) => l.tipo === t);
-    const tipoIfc = t.toUpperCase();
-    const idsIfc = m.porTipo.get(tipoIfc) || [];
-    const idx = IDX_RELACIONADOS[tipoIfc];
-    const tamRel = doRel.map((l) => l.relacionados.length).sort((a, b) => a - b);
-    const tamIfc = idsIfc.map((id) => {
-      const alvo = idx === undefined ? null : m.arg(id, idx);
-      if (!alvo) return 0;
-      return alvo.startsWith("(") ? m.refs(alvo).length : (alvo.startsWith("#") ? 1 : 0);
-    }).sort((a, b) => a - b);
-    const igual = doRel.length === idsIfc.length && tamRel.length === tamIfc.length && tamRel.every((v, i) => v === tamIfc[i]);
-    if (!igual) tudoIgual = false;
-    html += "<tr><td class='mono'>" + esc(t) + "</td><td class='n'>" + num(doRel.length) + "</td><td class='n'>" + num(idsIfc.length) +
-      "</td><td class='n'>" + num(tamRel.reduce((a, b) => a + b, 0)) + "</td><td class='n'>" + num(tamIfc.reduce((a, b) => a + b, 0)) +
-      '</td><td><span class="pil ' + (igual ? "consistente" : "divergencia_significativa") + '">' + (igual ? "idêntica" : "diverge") + "</span></td></tr>";
-  }
-  html += "</tbody></table></div>";
-
-  html += '<div class="aviso ' + (tudoIgual ? "bom" : "grave") + '" style="margin-top:14px"><strong>' +
-    (tudoIgual ? "Fidelidade estrutural total" : "Divergência estrutural encontrada") + "</strong>" +
-    (tudoIgual
-      ? "Contagem e distribuição de tamanhos batem em todos os tipos de relação. Isso é um controle negativo: o método não acusa divergência onde não há."
-      : "Pelo menos um tipo de relação difere em quantidade ou em distribuição. Vale investigar elemento a elemento antes de concluir — a ordem dentro da lista não tem significado no schema, mas a quantidade tem.") +
-    "</div>";
-  $("#res-rel").innerHTML = html;
-});
 
 /* ── relatório final ──
    A tabela responde "quanto"; o relatório tem de responder "o quê, onde e com
